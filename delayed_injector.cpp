@@ -17,13 +17,13 @@ int main() {
     auto path = filesystem::current_path();
     path += "\\" + config.plugins_path;
 
-    /*bool once = true;
+    bool once = true;
     do {
       if (once) {
         cout << "/// Waiting for process: " << config.process_name << endl;
         once = false;
       }
-    } while (!injector.set_process(config.process_name));*/
+    } while (!injector.set_process(config.process_name));
 
     cout << "/+/ Process opened. Start loading plugins..." << endl;
 
