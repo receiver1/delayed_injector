@@ -7,6 +7,43 @@
 #include "ntdef.hpp"
 #include "pe_file.hpp"
 
+class c_inject_error : private std::runtime_error {
+  int code = 0;
+
+ public:
+  c_inject_error(int error) throw()
+      : code(error), std::runtime_error(std::to_string(error)) {}
+  c_inject_error(const char *error) throw() : std::runtime_error(error) {}
+  virtual const char *what() const throw() {
+    switch (code) {
+      case 0xC0000008:
+        return "STATUS_INVALID_HANDLE";
+      case 0xC0000017:
+        return "STATUS_NO_MEMORY";
+      case 0xC0000018:
+        return "STATUS_CONFLICTING_ADDRESSES";
+      case 0xC0000021:
+        return "STATUS_ALREADY_COMMITTED";
+      case 0xC0000022:
+        return "STATUS_ACCESS_DENIED";
+      case 0xC0000024:
+        return "STATUS_OBJECT_TYPE_MISMATCH";
+      case 0xC00000A0:
+        return "STATUS_MEMORY_NOT_ALLOCATED";
+      case 0xC000012D:
+        return "STATUS_COMMITMENT_LIMIT";
+      case 0xC000009A:
+        return "STATUS_INSUFFICIENT_RESOURCES";
+      case 0xC0000045:
+        return "STATUS_INVALID_PAGE_PROTECTION";
+      case 0xC000010A:
+        return "STATUS_PROCESS_IS_TERMINATING";
+      default:
+        return exception::what();
+    }
+  }
+};
+
 class c_injector {
   using nt_open_process = NTSTATUS(__stdcall *)(PHANDLE, ACCESS_MASK,
                                                 POBJECT_ATTRIBUTES, PCLIENT_ID);
@@ -43,11 +80,10 @@ class c_injector {
         GetProcAddress(module, "NtAllocateVirtualMemory"));
     if (allocate == nullptr)
       throw std::runtime_error("NtAllocateVirtualMemory");
-    
+
     free = reinterpret_cast<nt_free_virtual_memory>(
         GetProcAddress(module, "NtFreeVirtualMemory"));
-    if (free == nullptr)
-      throw std::runtime_error("NtFreeVirtualMemory");
+    if (free == nullptr) throw std::runtime_error("NtFreeVirtualMemory");
 
     write = reinterpret_cast<nt_write_virtual_memory>(
         GetProcAddress(module, "NtWriteVirtualMemory"));
@@ -74,33 +110,29 @@ class c_injector {
     return this->process != 0;
   }
 
-  bool inject(std::string path) {
+  void inject(std::string path) {
+    if (!process) throw c_inject_error("Process not found");
+
     void *address = nullptr;
     unsigned long size = path.size();
 
-    NTSTATUS status = allocate(process, &address, 0, &size, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
-    //std::cout << "allocate\n";
-    if (status != STATUS_SUCCESS) return false;
+    NTSTATUS status = allocate(process, &address, 0, &size,
+                               MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+    if (status != STATUS_SUCCESS) throw c_inject_error(status);
 
     status = write(process, address, &path[0], size, 0);
-    //std::cout << "write\n";
-    if (status != STATUS_SUCCESS) return false;
+    if (status != STATUS_SUCCESS) throw c_inject_error(status);
 
-    FARPROC lla =
-        GetProcAddress(LoadLibrary("kernel32.dll"), "LoadLibraryA");
-    //std::cout << "lla\n";
-    if (lla == nullptr) return false;
+    FARPROC lla = GetProcAddress(LoadLibrary("kernel32.dll"), "LoadLibraryA");
+    if (lla == nullptr) throw c_inject_error("LoadLibraryA not found");
 
-    HANDLE thread = CreateRemoteThread(process, 0, 0,
-                       reinterpret_cast<LPTHREAD_START_ROUTINE>(lla), address,
-                       0, 0);
-    //std::cout << "thread\n";
-    if (!thread) return false;
+    HANDLE thread = CreateRemoteThread(
+        process, 0, 0, reinterpret_cast<LPTHREAD_START_ROUTINE>(lla), address,
+        0, 0);
+    if (!thread) throw c_inject_error("Failed to call thread");
 
     WaitForSingleObject(thread, INFINITE);
     close(thread);
     free(process, &address, &size, MEM_RELEASE);
-
-    return true;
   }
 };

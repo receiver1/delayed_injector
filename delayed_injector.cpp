@@ -17,13 +17,13 @@ int main() {
     auto path = filesystem::current_path();
     path += "\\" + config.plugins_path;
 
-    bool once = true;
+    /*bool once = true;
     do {
       if (once) {
         cout << "/// Waiting for process: " << config.process_name << endl;
         once = false;
       }
-    } while (!injector.set_process(config.process_name));
+    } while (!injector.set_process(config.process_name));*/
 
     cout << "/+/ Process opened. Start loading plugins..." << endl;
 
@@ -44,12 +44,11 @@ int main() {
 
       try {
         c_pe_file file{entry.path().string()};
-        if (!injector.inject(entry.path().string())) {
-          cout << "[FAILED]" << endl;
-          continue;
-        }
+        injector.inject(entry.path().string());
 
-        cout << "[SUCCESS]" << endl;
+        cout << "Success" << endl;
+      } catch (c_inject_error& error) {
+        cout << error.what() << endl;
       } catch (runtime_error& error) {
         cout << error.what() << endl;
       }
